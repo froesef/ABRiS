@@ -15,19 +15,7 @@
  */
 
 package za.co.absa.abris.examples
-
-import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.functions.struct
-import org.apache.spark.sql.{Dataset, Encoder, Row}
-import za.co.absa.abris.avro.format.SparkAvroConversions
-import za.co.absa.abris.avro.parsing.utils.AvroSchemaUtils
-import za.co.absa.abris.avro.read.confluent.SchemaManager
-import za.co.absa.abris.examples.data.generation.ComplexRecordsGenerator
-import za.co.absa.abris.examples.utils.ExamplesUtils._
-
-import scala.collection.JavaConverters._
-import scala.collection.mutable
-
+/*
 object KafkaAvroWriter {
 
   private val PARAM_JOB_NAME = "job.name"
@@ -118,3 +106,5 @@ object KafkaAvroWriter {
     RowEncoder.apply(sparkSchema)
   }
 }
+
+ */

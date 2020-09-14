@@ -22,91 +22,39 @@ import io.confluent.kafka.schemaregistry.client.{SchemaMetadata, SchemaRegistryC
 import org.apache.avro.Schema
 import org.apache.spark.internal.Logging
 import za.co.absa.abris.avro.parsing.utils.AvroSchemaUtils
-import za.co.absa.abris.avro.read.confluent.SchemaManager.PARAM_SCHEMA_ID_LATEST_NAME
-import za.co.absa.abris.avro.schemas.RegistryConfig
 
+import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
 
-class SchemaManager(
-   config: RegistryConfig,
-   schemaRegistryClient: SchemaRegistryClient) extends Logging {
+class SchemaManager(schemaRegistryClient: SchemaRegistryClient) extends Logging {
 
-  lazy val schemaId: Option[Int] = resolveSchemaId()
+  def getSchemaById(schemaId: Int): Schema = schemaRegistryClient.getById(schemaId)
 
-  private def resolveSchemaId(): Option[Int] = {
-    val subject = config.subjectName()
+  /**
+   * @param version - Some(versionNumber) or None for latest version
+   */
+  def getSchemaBySubjectAndVersion(subject: String, version: Option[Int]): Schema = {
+    val metadata = getSchemaMetadataBySubjectAndVersion(subject, version)
 
-    config.schemaIdOption match {
-      case Some(PARAM_SCHEMA_ID_LATEST_NAME) =>  Some(getLatestVersionId(subject))
-      case Some(id) => Some(id.toInt)
-      case _ => config.schemaVersionOption match {
-        case Some(PARAM_SCHEMA_ID_LATEST_NAME) => Some(getLatestVersionId(subject))
-        case Some(version) => Some(getSchemaMetadataBySubjectAndVersion(subject, version.toInt).getId)
-        case _ => None
-      }
-    }
+    AvroSchemaUtils.parse(metadata.getSchema)
   }
 
   /**
-   * Retrieves the id corresponding to the latest schema available in Schema Registry.
+   * @param version - Some(versionNumber) or None for latest version
    */
-  private def getLatestVersionId(subject: String): Int = {
-    logDebug(s"Trying to get latest schema version id for subject '$subject'")
+  def getSchemaMetadataBySubjectAndVersion(subject: String, version: Option[Int]): SchemaMetadata =
+    version
+      .map(schemaRegistryClient.getSchemaMetadata(subject, _))
+      .getOrElse(schemaRegistryClient.getLatestSchemaMetadata(subject))
 
-    Try(schemaRegistryClient.getLatestSchemaMetadata(subject).getId) match {
-      case Success(id)  => id
-      case Failure(e)   => throw new SchemaManagerException(
-        s"Could not get the id of the latest version for subject '$subject'", e)
-    }
-  }
-
-  /**
-   * Retrieves an Avro [[SchemaMetadata]] instance from a given subject and stored with a given version.
-   */
-  private def getSchemaMetadataBySubjectAndVersion(subject: String, version: Int): SchemaMetadata = {
-    logDebug(s"Trying to get schema for subject '$subject' and version '$version'")
-
-    Try(schemaRegistryClient.getSchemaMetadata(subject, version)) match {
-      case Success(id)  => id
-      case Failure(e)   => throw new SchemaManagerException(
-        s"Could not get schema metadata for subject '$subject' and version '$version'", e)
-    }
-  }
-
-  def downloadSchema(): Schema = getBySubjectAndId(config.subjectName(), schemaId.get)
-
-  /**
-   * Retrieves an Avro Schema instance from a given subject and stored with a given id.
-   */
-  private def getBySubjectAndId(subject: String, id: Int): Schema = {
-    logDebug(s"Trying to get schema for subject '$subject' and id '$id'")
-
-    Try(schemaRegistryClient.getBySubjectAndId(subject, id)) match {
-      case Success(schema)  => schema
-      case Failure(e)   => throw new SchemaManagerException(
-        s"Could not get schema for subject '$subject' and id '$id'", e)
-    }
-  }
-
-  def downloadById(id: Int): Schema = {
-    logDebug(s"Trying to get schema for id '$id'")
-
-    Try(schemaRegistryClient.getById(id)) match {
-      case Success(retrievedId)  => retrievedId
-      case Failure(e)   => throw new SchemaManagerException(s"Could not get schema for id '$id'", e)
-    }
-  }
-
-  def register(schemaString: String): Int = register(AvroSchemaUtils.parse(schemaString))
+  def register(subject: String, schemaString: String): Int = register(subject, AvroSchemaUtils.parse(schemaString))
 
   /**
    * Register a new schema for a subject if the schema is compatible with the latest available version.
    *
    * @return registered schema id
    */
-  def register(schema: Schema): Int = {
-    val subject = config.subjectName(schema)
-
+  def register(subject: String, schema: Schema): Int = {
     if (!exists(subject) || isCompatible(schema, subject)) {
       logInfo(s"AvroSchemaUtils.registerIfCompatibleSchema: Registering schema for subject: $subject")
       schemaRegistryClient.register(subject, schema)
@@ -119,7 +67,7 @@ class SchemaManager(
   /**
    * Checks if a given schema exists in Schema Registry.
    */
-  private def exists(subject: String): Boolean = {
+  def exists(subject: String): Boolean = {
     Try(schemaRegistryClient.getLatestSchemaMetadata(subject)) match {
       case Success(_) => true
       case Failure(e) if e.getMessage.contains("Subject not found") || e.getMessage.contains("No schema registered") =>
@@ -136,6 +84,26 @@ class SchemaManager(
    */
   private def isCompatible(newSchema: Schema, subject: String): Boolean = {
     schemaRegistryClient.testCompatibility(subject, newSchema)
+  }
+
+  def getAllSchemasWithMetadata(subject: String): List[SchemaMetadata] = {
+    val versions = schemaRegistryClient.getAllVersions(subject).asScala.toList
+    versions.map(schemaRegistryClient.getSchemaMetadata(subject, _))
+  }
+
+  def findEquivalentSchema(schema: Schema, subject: String): Option[Int] = {
+    val maybeIdenticalSchemaMetadata =
+      getAllSchemasWithMetadata(subject)
+        .find{
+          sm => AvroSchemaUtils.parse(sm.getSchema).equals(schema)
+        }
+
+    maybeIdenticalSchemaMetadata.map(_.getId)
+  }
+
+  def getIfExistsOrElseRegisterSchema(schema: Schema, subject: String): Int = {
+    val maybeSchemaId = findEquivalentSchema(schema, subject)
+    maybeSchemaId.getOrElse(register(subject, schema))
   }
 }
 

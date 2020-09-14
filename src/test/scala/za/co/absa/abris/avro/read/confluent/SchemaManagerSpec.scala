@@ -16,10 +16,9 @@
 
 package za.co.absa.abris.avro.read.confluent
 
-import java.security.InvalidParameterException
-
 import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient
 import org.scalatest.{BeforeAndAfter, FlatSpec}
+import za.co.absa.abris.avro.parsing.utils.AvroSchemaUtils
 import za.co.absa.abris.avro.schemas.RegistryConfig
 
 class schemaManagerSpec extends FlatSpec with BeforeAndAfter {
@@ -60,18 +59,6 @@ class schemaManagerSpec extends FlatSpec with BeforeAndAfter {
 
   behavior of "SchemaManager"
 
-  it should "throw if no strategy is specified" in {
-    val conf = Map[String,String]()
-    val schemaManager = new SchemaManager(new RegistryConfig(conf), new MockSchemaRegistryClient())
-
-    intercept[InvalidParameterException] {
-      schemaManager.downloadSchema()
-    }
-    intercept[InvalidParameterException] {
-      schemaManager.register(recordEvolvedByteSchema1)
-    }
-  }
-
   private val dummySchemaRegistryConfig = Map(
     SchemaManager.PARAM_SCHEMA_REGISTRY_TOPIC -> "dummy_topic",
     SchemaManager.PARAM_SCHEMA_REGISTRY_URL -> "dummy",
@@ -85,70 +72,90 @@ class schemaManagerSpec extends FlatSpec with BeforeAndAfter {
     SchemaManager.PARAM_VALUE_SCHEMA_NAMING_STRATEGY -> "topic.name"
   )
 
-  it should "resolve schema id integer from schema and version" in {
+//  it should "resolve schema id integer from schema and version" in {
+//
+//    val client = new MockSchemaRegistryClient()
+//    val config = new RegistryConfig(dummySchemaRegistryConfig)
+//    val subject = config.subjectName()
+//
+//    val dummySchemaManager = new SchemaManager(client)
+//    // register dummy schema so that ids and versions are different for the rest
+//    dummySchemaManager.register(subject, schema)                 // id 1, version 1
+//
+//
+//    val regConfig = new RegistryConfig(schemaRegistryConfig)
+//    val schemaManager1 = new SchemaManager(regConfig, client)
+//    // now register several schemas for different topic to create more versions
+//    schemaManager1.register(subject, recordByteSchema)           // id 2, version 1
+//    schemaManager1.register(subject, recordEvolvedByteSchema1)   // id 3, version 2
+//    schemaManager1.register(subject, recordEvolvedByteSchema2)   // id 4, version 3
+//
+//
+//    val schemaManager2 = new SchemaManager(new RegistryConfig(
+//      schemaRegistryConfig ++ Map(
+//        SchemaManager.PARAM_VALUE_SCHEMA_ID -> "4",
+//        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "2"
+//      )
+//    ), client)
+//
+//    assert(schemaManager2.schemaId.get == 4)
+//
+//
+//    val schemaManager3 = new SchemaManager(new RegistryConfig(
+//      schemaRegistryConfig ++ Map(
+//        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "2"
+//      )
+//    ), client)
+//
+//    assert(schemaManager3.schemaId.get == 3)
+//
+//
+//    val schemaManager4 = new SchemaManager(new RegistryConfig(
+//      schemaRegistryConfig ++ Map(
+//        SchemaManager.PARAM_VALUE_SCHEMA_ID -> "latest"
+//      )
+//    ), client)
+//
+//    assert(schemaManager4.schemaId.get == 4)
+//
+//
+//    val schemaManager5 = new SchemaManager(new RegistryConfig(
+//      schemaRegistryConfig ++ Map(
+//        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "latest"
+//      )
+//    ), client)
+//
+//    assert(schemaManager5.schemaId.get == 4)
+//
+//
+//    val schemaManager6 = new SchemaManager(new RegistryConfig(
+//      dummySchemaRegistryConfig ++ Map(
+//        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "latest"
+//      )
+//    ), client)
+//
+//    assert(schemaManager6.schemaId.get == 1)
+//
+//    val schemaManager7 = new SchemaManager(new RegistryConfig(dummySchemaRegistryConfig), client)
+//    assert(schemaManager7.schemaId == None)
+//  }
 
-    val client = new MockSchemaRegistryClient()
+  it should "find already existing schema" in {
+    val config = new RegistryConfig(dummySchemaRegistryConfig)
+    val subject = config.subjectName()
+    val schemaManager = new SchemaManager(new MockSchemaRegistryClient())
 
-    val dummySchemaManager = new SchemaManager(new RegistryConfig(dummySchemaRegistryConfig), client)
-    // register dummy schema so that ids and versions are different for the rest
-    dummySchemaManager.register(schema)                 // id 1, version 1
+    schemaManager.register(subject, recordByteSchema)
+    schemaManager.register(subject, recordEvolvedByteSchema1)
+    schemaManager.register(subject, recordEvolvedByteSchema2)
 
+    val schema = AvroSchemaUtils.parse(recordEvolvedByteSchema1)
 
-    val regConfig = new RegistryConfig(schemaRegistryConfig)
-    val schemaManager1 = new SchemaManager(regConfig, client)
-    // now register several schemas for different topic to create more versions
-    schemaManager1.register(recordByteSchema)           // id 2, version 1
-    schemaManager1.register(recordEvolvedByteSchema1)   // id 3, version 2
-    schemaManager1.register(recordEvolvedByteSchema2)   // id 4, version 3
+    val maybeId = schemaManager.findEquivalentSchema(schema, config.subjectName(schema))
 
+    val resultSchema = schemaManager.getSchemaById(maybeId.get)
 
-    val schemaManager2 = new SchemaManager(new RegistryConfig(
-      schemaRegistryConfig ++ Map(
-        SchemaManager.PARAM_VALUE_SCHEMA_ID -> "4",
-        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "2"
-      )
-    ), client)
-
-    assert(schemaManager2.schemaId.get == 4)
-
-
-    val schemaManager3 = new SchemaManager(new RegistryConfig(
-      schemaRegistryConfig ++ Map(
-        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "2"
-      )
-    ), client)
-
-    assert(schemaManager3.schemaId.get == 3)
-
-
-    val schemaManager4 = new SchemaManager(new RegistryConfig(
-      schemaRegistryConfig ++ Map(
-        SchemaManager.PARAM_VALUE_SCHEMA_ID -> "latest"
-      )
-    ), client)
-
-    assert(schemaManager4.schemaId.get == 4)
-
-
-    val schemaManager5 = new SchemaManager(new RegistryConfig(
-      schemaRegistryConfig ++ Map(
-        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "latest"
-      )
-    ), client)
-
-    assert(schemaManager5.schemaId.get == 4)
-
-
-    val schemaManager6 = new SchemaManager(new RegistryConfig(
-      dummySchemaRegistryConfig ++ Map(
-        SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "latest"
-      )
-    ), client)
-
-    assert(schemaManager6.schemaId.get == 1)
-
-    val schemaManager7 = new SchemaManager(new RegistryConfig(dummySchemaRegistryConfig), client)
-    assert(schemaManager7.schemaId == None)
+    assert(resultSchema.equals(schema))
   }
 
 
