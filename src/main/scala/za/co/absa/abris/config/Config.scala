@@ -132,20 +132,20 @@ class ToConfluentAvroRegistrationStrategyConfigFragment(schema: String, confluen
     isKey: Boolean = false
   ): ToSchemaRegisteringConfigFragment =
     new ToSchemaRegisteringConfigFragment(
-      SubjectCoordinate.fromTopicNameStrategy(topicName, None, isKey), schema, true)
+      SubjectCoordinate.fromTopicNameStrategy(topicName, None, isKey), schema, confluent)
 
   def usingRecordNameStrategy(
     isKey: Boolean = false
   ): ToSchemaRegisteringConfigFragment =
     new ToSchemaRegisteringConfigFragment(
-      SubjectCoordinate.fromRecordNameStrategy(AvroSchemaUtils.parse(schema), isKey), schema, true)
+      SubjectCoordinate.fromRecordNameStrategy(AvroSchemaUtils.parse(schema), isKey), schema, confluent)
 
   def usingTopicRecordNameStrategy(
     topicName: String,
     isKey: Boolean = false
   ): ToSchemaRegisteringConfigFragment =
     new ToSchemaRegisteringConfigFragment(
-      SubjectCoordinate.fromTopicRecordNameStrategy(topicName, AvroSchemaUtils.parse(schema), isKey), schema, true)
+      SubjectCoordinate.fromTopicRecordNameStrategy(topicName, AvroSchemaUtils.parse(schema), isKey), schema, confluent)
 }
 
 class ToSchemaRegisteringConfigFragment(

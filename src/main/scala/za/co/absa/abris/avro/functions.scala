@@ -18,7 +18,7 @@ package za.co.absa.abris.avro
 
 import org.apache.spark.sql.Column
 import za.co.absa.abris.avro.sql.{AvroDataToCatalyst, CatalystDataToAvro}
-import za.co.absa.abris.config.{FromAvroConfig, ToAvroConfig}
+import za.co.absa.abris.config.{AbrisConfig, FromAvroConfig, ToAvroConfig}
 
 
 // scalastyle:off: object.name
@@ -34,6 +34,14 @@ object functions {
     ))
   }
 
+  def to_avro(data: Column, schema: String): Column = {
+    val config = AbrisConfig
+      .toSimpleAvro
+      .provideSchema(schema)
+
+    to_avro(data, config)
+  }
+
   def from_avro(data: Column, config: FromAvroConfig): Column = {
     new Column(AvroDataToCatalyst(
       data.expr,
@@ -41,6 +49,14 @@ object functions {
       config.schemaRegistryConf,
       config.schemaRegistryConf.isDefined
     ))
+  }
+
+  def from_avro(data: Column, schema: String): Column = {
+    val config = AbrisConfig
+      .fromSimpleAvro
+      .provideSchema(schema)
+
+    from_avro(data, config)
   }
 
   // scalastyle:on: method.name
