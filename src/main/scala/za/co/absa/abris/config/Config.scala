@@ -18,6 +18,7 @@ package za.co.absa.abris.config
 
 import za.co.absa.abris.avro.parsing.utils.AvroSchemaUtils
 import za.co.absa.abris.avro.read.confluent.SchemaManagerFactory
+import za.co.absa.abris.avro.registry._
 
 object AbrisConfig {
   def toSimpleAvro: ToSimpleAvroConfigFragment = new ToSimpleAvroConfigFragment()
@@ -37,10 +38,10 @@ class ToSimpleAvroConfigFragment() {
     new ToSchemaDownloadingConfigFragment(new IdCoordinate(schemaId), false)
 
   def downloadSchemaByLatestVersion: ToStrategyConfigFragment =
-    new ToStrategyConfigFragment(None, false)
+    new ToStrategyConfigFragment(LatestVersion(), false)
 
   def downloadSchemaByVersion(schemaVersion: Int): ToStrategyConfigFragment =
-    new ToStrategyConfigFragment(Some(schemaVersion), false)
+    new ToStrategyConfigFragment(NumVersion(schemaVersion), false)
 
   def provideSchema(schema: String): ToAvroConfig =
     new ToAvroConfig(schema, None)
@@ -49,34 +50,31 @@ class ToSimpleAvroConfigFragment() {
     new ToConfluentAvroRegistrationStrategyConfigFragment(schema, false)
 }
 
-class ToStrategyConfigFragment(version: Option[Int], confluent: Boolean) {
+class ToStrategyConfigFragment(version: SchemaVersion, confluent: Boolean) {
   def andTopicNameStrategy(
     topicName: String,
     isKey: Boolean = false
   ): ToSchemaDownloadingConfigFragment =
-    new ToSchemaDownloadingConfigFragment(
-      SubjectCoordinate.fromTopicNameStrategy(topicName, version, isKey), confluent)
+    toSDCFragment(SchemaSubject.usingTopicNameStrategy(topicName, isKey))
 
   def andRecordNameStrategy(
     recordName: String,
     recordNamespace: String,
-    isKey: Boolean = false
   ): ToSchemaDownloadingConfigFragment =
-    new ToSchemaDownloadingConfigFragment(
-      SubjectCoordinate.fromRecordNameStrategy(recordName, recordNamespace, version, isKey), confluent)
-
+    toSDCFragment(SchemaSubject.usingRecordNameStrategy(recordName, recordNamespace))
 
   def andTopicRecordNameStrategy(
     topicName: String,
     recordName: String,
     recordNamespace: String,
-    isKey: Boolean = false
   ): ToSchemaDownloadingConfigFragment =
-    new ToSchemaDownloadingConfigFragment(
-      SubjectCoordinate.fromTopicRecordNameStrategy(topicName, recordName, recordNamespace, version, isKey), confluent)
+    toSDCFragment(SchemaSubject.usingTopicRecordNameStrategy(topicName, recordName, recordNamespace))
+
+  private def toSDCFragment(subject: SchemaSubject) =
+    new ToSchemaDownloadingConfigFragment(SubjectCoordinate(subject, version), confluent)
 }
 
-class ToSchemaDownloadingConfigFragment(schemaCoordinates: SchemaCoordinates, confluent: Boolean) {
+class ToSchemaDownloadingConfigFragment(schemaCoordinates: SchemaCoordinate, confluent: Boolean) {
   def usingSchemaRegistry(url: String): ToAvroConfig = usingSchemaRegistry(Map(AbrisConfig.SCHEMA_REGISTRY_URL -> url))
   def usingSchemaRegistry(config: Map[String, String]): ToAvroConfig = {
     val schemaManager = SchemaManagerFactory.create(config)
@@ -117,10 +115,10 @@ class ToConfluentAvroConfigFragment() {
     new ToSchemaDownloadingConfigFragment(new IdCoordinate(schemaId), true)
 
   def downloadSchemaByLatestVersion: ToStrategyConfigFragment =
-    new ToStrategyConfigFragment(None, true)
+    new ToStrategyConfigFragment(LatestVersion(), true)
 
   def downloadSchemaByVersion(schemaVersion: Int): ToStrategyConfigFragment =
-    new ToStrategyConfigFragment(Some(schemaVersion), true)
+    new ToStrategyConfigFragment(NumVersion(schemaVersion), true)
 
   def provideAndRegisterSchema(schema: String): ToConfluentAvroRegistrationStrategyConfigFragment =
     new ToConfluentAvroRegistrationStrategyConfigFragment(schema, true)
@@ -131,25 +129,23 @@ class ToConfluentAvroRegistrationStrategyConfigFragment(schema: String, confluen
     topicName: String,
     isKey: Boolean = false
   ): ToSchemaRegisteringConfigFragment =
-    new ToSchemaRegisteringConfigFragment(
-      SubjectCoordinate.fromTopicNameStrategy(topicName, None, isKey), schema, confluent)
+    toSRCFragment(SchemaSubject.usingTopicNameStrategy(topicName, isKey))
 
   def usingRecordNameStrategy(
-    isKey: Boolean = false
   ): ToSchemaRegisteringConfigFragment =
-    new ToSchemaRegisteringConfigFragment(
-      SubjectCoordinate.fromRecordNameStrategy(AvroSchemaUtils.parse(schema), isKey), schema, confluent)
+    toSRCFragment(SchemaSubject.usingRecordNameStrategy(AvroSchemaUtils.parse(schema)))
 
   def usingTopicRecordNameStrategy(
     topicName: String,
-    isKey: Boolean = false
   ): ToSchemaRegisteringConfigFragment =
-    new ToSchemaRegisteringConfigFragment(
-      SubjectCoordinate.fromTopicRecordNameStrategy(topicName, AvroSchemaUtils.parse(schema), isKey), schema, confluent)
+    toSRCFragment(SchemaSubject.usingTopicRecordNameStrategy(topicName, AvroSchemaUtils.parse(schema)))
+
+  private def toSRCFragment(subject: SchemaSubject) =
+    new ToSchemaRegisteringConfigFragment(subject, schema, confluent)
 }
 
 class ToSchemaRegisteringConfigFragment(
-  subjectCoordinate: SubjectCoordinate,
+  subject: SchemaSubject,
   schemaString: String,
   confluent: Boolean
 ) {
@@ -157,7 +153,7 @@ class ToSchemaRegisteringConfigFragment(
   def usingSchemaRegistry(config: Map[String, String]): ToAvroConfig = {
     val schemaManager = SchemaManagerFactory.create(config)
     val schema = AvroSchemaUtils.parse(schemaString)
-    val schemaId = schemaManager.getIfExistsOrElseRegisterSchema(schema, subjectCoordinate.subject)
+    val schemaId = schemaManager.getIfExistsOrElseRegisterSchema(schema, subject)
     new ToAvroConfig(schemaString, if (confluent) Some(schemaId) else None)
   }
 }
@@ -173,48 +169,41 @@ class FromSimpleAvroConfigFragment{
     new FromSchemaDownloadingConfigFragment(Left(new IdCoordinate(schemaId)), false)
 
   def downloadSchemaByLatestVersion: FromStrategyConfigFragment =
-    new FromStrategyConfigFragment(None, false)
+    new FromStrategyConfigFragment(LatestVersion(), false)
 
   def downloadSchemaByVersion(schemaVersion: Int): FromStrategyConfigFragment =
-    new FromStrategyConfigFragment(Some(schemaVersion), false)
+    new FromStrategyConfigFragment(NumVersion(schemaVersion), false)
 
   def provideSchema(schema: String): FromAvroConfig =
     new FromAvroConfig(schema, None)
 }
 
-class FromStrategyConfigFragment(version: Option[Int], confluent: Boolean) {
+class FromStrategyConfigFragment(version: SchemaVersion, confluent: Boolean) {
   def andTopicNameStrategy(
     topicName: String,
     isKey: Boolean = false
-  ): FromSchemaDownloadingConfigFragment = {
-    val coordinate = SubjectCoordinate.fromTopicNameStrategy(topicName, version, isKey)
-    new FromSchemaDownloadingConfigFragment(Left(coordinate), confluent)
-  }
+  ): FromSchemaDownloadingConfigFragment =
+    toFSDCFragment(SchemaSubject.usingTopicNameStrategy(topicName, isKey))
 
   def andRecordNameStrategy(
     recordName: String,
     recordNamespace: String,
-    isKey: Boolean = false
-  ): FromSchemaDownloadingConfigFragment = {
-    val coordinate = SubjectCoordinate.fromRecordNameStrategy(recordName, recordNamespace, version, isKey)
-    new FromSchemaDownloadingConfigFragment(Left(coordinate), confluent)
-  }
+  ): FromSchemaDownloadingConfigFragment =
+    toFSDCFragment(SchemaSubject.usingRecordNameStrategy(recordName, recordNamespace))
 
   def andTopicRecordNameStrategy(
     topicName: String,
     recordName: String,
     recordNamespace: String,
-    isKey: Boolean = false
-  ): FromSchemaDownloadingConfigFragment = {
-    val coordinate = SubjectCoordinate.fromTopicRecordNameStrategy(
-      topicName, recordName, recordNamespace, version, isKey)
+  ): FromSchemaDownloadingConfigFragment =
+    toFSDCFragment(SchemaSubject.usingTopicRecordNameStrategy(topicName, recordName, recordNamespace))
 
-    new FromSchemaDownloadingConfigFragment(Left(coordinate), confluent)
-  }
+  private def toFSDCFragment(subject: SchemaSubject) =
+    new FromSchemaDownloadingConfigFragment(Left(SubjectCoordinate(subject, version)), confluent)
 }
 
 class FromSchemaDownloadingConfigFragment(
-  schemaCoordinatesOrSchemaString: Either[SchemaCoordinates, String],
+  schemaCoordinatesOrSchemaString: Either[SchemaCoordinate, String],
   confluent: Boolean
 ) {
   def usingSchemaRegistry(url: String): FromAvroConfig =
@@ -223,10 +212,7 @@ class FromSchemaDownloadingConfigFragment(
   def usingSchemaRegistry(config: Map[String, String]): FromAvroConfig = schemaCoordinatesOrSchemaString match {
     case Left(coordinate) => {
       val schemaManager = SchemaManagerFactory.create(config)
-      val schema = coordinate match {
-        case ic: IdCoordinate => schemaManager.getSchemaById(ic.schemaId)
-        case sc: SubjectCoordinate => schemaManager.getSchemaBySubjectAndVersion(sc.subject, sc.version)
-      }
+      val schema = schemaManager.getSchema(coordinate)
       new FromAvroConfig(schema.toString, if (confluent) Some(config) else None)
     }
     case Right(schemaString) =>
@@ -243,10 +229,10 @@ class FromConfluentAvroConfigFragment {
     new FromSchemaDownloadingConfigFragment(Left(new IdCoordinate(schemaId)), true)
 
   def downloadReaderSchemaByLatestVersion: FromStrategyConfigFragment =
-    new FromStrategyConfigFragment(None, true)
+    new FromStrategyConfigFragment(LatestVersion(), true)
 
   def downloadReaderSchemaByVersion(schemaVersion: Int): FromStrategyConfigFragment =
-    new FromStrategyConfigFragment(Some(schemaVersion), true)
+    new FromStrategyConfigFragment(NumVersion(schemaVersion), true)
 
   def provideSchema(schema: String): FromSchemaDownloadingConfigFragment =
     new FromSchemaDownloadingConfigFragment(Right(schema), true)

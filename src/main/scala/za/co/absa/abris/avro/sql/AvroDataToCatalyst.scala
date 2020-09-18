@@ -136,13 +136,4 @@ case class AvroDataToCatalyst(
 
     reader.read(reader, decoder)
   }
-
-  private def wrapSchemaIfNeeded(schema: Schema) = {
-    if (schema.getType == Schema.Type.RECORD) {
-      schema
-    } else {
-      AvroSchemaUtils.wrapSchema(schema, "notUsedName", "notUsedNamespace")
-    }
-  }
-
 }

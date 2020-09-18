@@ -23,7 +23,8 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
 import za.co.absa.abris.avro.format.SparkAvroConversions
 import za.co.absa.abris.avro.functions._
 import za.co.absa.abris.avro.read.confluent.SchemaManagerFactory
-import za.co.absa.abris.config.{AbrisConfig, SubjectCoordinate}
+import za.co.absa.abris.avro.registry.SchemaSubject
+import za.co.absa.abris.config.AbrisConfig
 
 class SchemaEvolutionSpec extends FlatSpec with Matchers with BeforeAndAfterEach
 {
@@ -37,20 +38,6 @@ class SchemaEvolutionSpec extends FlatSpec with Matchers with BeforeAndAfterEach
 
   private val dummyUrl = "dummyUrl"
   private val schemaRegistryConfig = Map(AbrisConfig.SCHEMA_REGISTRY_URL -> dummyUrl)
-
-//  private val schemaRegistryConfig = Map(
-//    SchemaManager.PARAM_SCHEMA_REGISTRY_TOPIC -> "test_topic",
-//    SchemaManager.PARAM_SCHEMA_REGISTRY_URL -> "dummy",
-//    SchemaManager.PARAM_VALUE_SCHEMA_NAMING_STRATEGY -> "topic.record.name",
-//    SchemaManager.PARAM_VALUE_SCHEMA_NAME_FOR_RECORD_STRATEGY -> "record_name",
-//    SchemaManager.PARAM_VALUE_SCHEMA_NAMESPACE_FOR_RECORD_STRATEGY -> "all-types.test"
-//  )
-//
-//  private val latestSchemaRegistryConfig = schemaRegistryConfig ++ Map(
-//    SchemaManager.PARAM_VALUE_SCHEMA_VERSION -> "latest"
-//  )
-
-
 
   override def beforeEach() {
     val mockedSchemaRegistryClient = new MockSchemaRegistryClient()
@@ -134,14 +121,13 @@ class SchemaEvolutionSpec extends FlatSpec with Matchers with BeforeAndAfterEach
     val avroRows = avroBytes.collect()
 
     val schemaManager = SchemaManagerFactory.create(schemaRegistryConfig)
-    val coordinate = SubjectCoordinate.fromTopicRecordNameStrategy(
+    val subject = SchemaSubject.usingTopicRecordNameStrategy(
       "test_topic",
       "record_name",
       "all-types.test",
-      None
     )
 
-    schemaManager.register(coordinate.subject, recordEvolvedByteSchema)
+    schemaManager.register(subject, recordEvolvedByteSchema)
 
     // Now when the last version of schema is registered, we will convert the data back to spark DataFrame
     val avroDF = spark.sparkContext.parallelize(avroRows, 2)

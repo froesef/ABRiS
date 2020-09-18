@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 ABSA Group Limited
+ * Copyright 2020 ABSA Group Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,64 +14,60 @@
  * limitations under the License.
  */
 
-package za.co.absa.abris.config
+package za.co.absa.abris.avro.registry
 
 import io.confluent.kafka.serializers.subject.{RecordNameStrategy, TopicNameStrategy, TopicRecordNameStrategy}
 import org.apache.avro.Schema
 
-trait SchemaCoordinates
+/**
+ * Represents Confluent Schema Registry Subject created using naming strategy
+ *
+ * https://docs.confluent.io/current/schema-registry/serdes-develop/index.html#how-the-naming-strategies-work
+ *
+ */
+class SchemaSubject(val asString: String)
 
-class IdCoordinate(val schemaId: Int) extends SchemaCoordinates
-
-class SubjectCoordinate(val subject: String, val version: Option[Int]) extends SchemaCoordinates
-
-object SubjectCoordinate {
+object SchemaSubject{
   private val TOPIC_NAME_STRATEGY = new TopicNameStrategy()
   private val RECORD_NAME_STRATEGY = new RecordNameStrategy()
   private val TOPIC_RECORD_NAME_STRATEGY = new TopicRecordNameStrategy()
 
-  def fromTopicNameStrategy(
+  private val dummySchema = Schema.createRecord("name", "", "namespace", false)
+
+  def usingTopicNameStrategy(
     topicName: String,
-    version: Option[Int],
     isKey: Boolean = false
-  ): SubjectCoordinate = {
-    val dummySchema = Schema.createRecord("name", "", "namespace", false)
-    new SubjectCoordinate(TOPIC_NAME_STRATEGY.subjectName(topicName, isKey, dummySchema), version)
+  ): SchemaSubject = {
+    new SchemaSubject(TOPIC_NAME_STRATEGY.subjectName(topicName, isKey, dummySchema))
   }
 
-  def fromRecordNameStrategy(
+  def usingRecordNameStrategy(
     recordName: String,
     recordNamespace: String,
-    version: Option[Int],
-    isKey: Boolean = false
-  ): SubjectCoordinate = {
+  ): SchemaSubject = {
     val dummySchema = Schema.createRecord(recordName, "", recordNamespace, false)
-    new SubjectCoordinate(RECORD_NAME_STRATEGY.subjectName("", isKey, dummySchema), version)
+    new SchemaSubject(RECORD_NAME_STRATEGY.subjectName("", false, dummySchema))
   }
 
-  def fromRecordNameStrategy(
+  def usingRecordNameStrategy(
     schema: Schema,
-    isKey: Boolean
-  ): SubjectCoordinate = {
-    new SubjectCoordinate(RECORD_NAME_STRATEGY.subjectName("", isKey, schema), None)
+  ): SchemaSubject = {
+    new SchemaSubject(RECORD_NAME_STRATEGY.subjectName("", false, schema))
   }
 
-  def fromTopicRecordNameStrategy(
+  def usingTopicRecordNameStrategy(
     topicName: String,
     recordName: String,
     recordNamespace: String,
-    version: Option[Int],
-    isKey: Boolean = false
-  ): SubjectCoordinate = {
+  ): SchemaSubject = {
     val dummySchema = Schema.createRecord(recordName, "", recordNamespace, false)
-    new SubjectCoordinate(TOPIC_RECORD_NAME_STRATEGY.subjectName(topicName, isKey, dummySchema), version)
+    new SchemaSubject(TOPIC_RECORD_NAME_STRATEGY.subjectName(topicName, false, dummySchema))
   }
 
-  def fromTopicRecordNameStrategy(
+  def usingTopicRecordNameStrategy(
     topicName: String,
     schema: Schema,
-    isKey: Boolean
-  ): SubjectCoordinate = {
-    new SubjectCoordinate(TOPIC_RECORD_NAME_STRATEGY.subjectName(topicName, isKey, schema), None)
+  ): SchemaSubject = {
+    new SchemaSubject(TOPIC_RECORD_NAME_STRATEGY.subjectName(topicName, false, schema))
   }
 }

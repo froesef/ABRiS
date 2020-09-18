@@ -26,37 +26,61 @@ object functions {
 // scalastyle:on: object.name
 // scalastyle:off: method.name
 
-  def to_avro(data: Column, config: ToAvroConfig): Column = {
+  /**
+   *
+   * @param column containing data for conversion
+   * @param config Abris configuration
+   * @return column containing data in avro format
+   */
+  def to_avro(column: Column, config: ToAvroConfig): Column = {
     new Column(CatalystDataToAvro(
-      data.expr,
+      column.expr,
       config.schemaString,
       config.schemaId
     ))
   }
 
-  def to_avro(data: Column, schema: String): Column = {
+  /**
+   *
+   * @param column containing data for conversion
+   * @param schema avro schema
+   * @return column containing data in avro format
+   */
+  def to_avro(column: Column, schema: String): Column = {
     val config = AbrisConfig
       .toSimpleAvro
       .provideSchema(schema)
 
-    to_avro(data, config)
+    to_avro(column, config)
   }
 
-  def from_avro(data: Column, config: FromAvroConfig): Column = {
+  /**
+   *
+   * @param column column containing data for conversion
+   * @param config Abris configuration
+   * @return column with converted data
+   */
+  def from_avro(column: Column, config: FromAvroConfig): Column = {
     new Column(AvroDataToCatalyst(
-      data.expr,
+      column.expr,
       config.schemaString,
       config.schemaRegistryConf,
       config.schemaRegistryConf.isDefined
     ))
   }
 
-  def from_avro(data: Column, schema: String): Column = {
+  /**
+   *
+   * @param column column containing data for conversion
+   * @param schema avro schema
+   * @return column with converted data
+   */
+  def from_avro(column: Column, schema: String): Column = {
     val config = AbrisConfig
       .fromSimpleAvro
       .provideSchema(schema)
 
-    from_avro(data, config)
+    from_avro(column, config)
   }
 
   // scalastyle:on: method.name

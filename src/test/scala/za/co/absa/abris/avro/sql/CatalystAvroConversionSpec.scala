@@ -24,8 +24,9 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
 import za.co.absa.abris.avro.format.SparkAvroConversions
 import za.co.absa.abris.avro.functions._
 import za.co.absa.abris.avro.parsing.utils.AvroSchemaUtils
-import za.co.absa.abris.avro.read.confluent.{SchemaManager, SchemaManagerFactory}
-import za.co.absa.abris.config.{AbrisConfig, SubjectCoordinate}
+import za.co.absa.abris.avro.read.confluent.SchemaManagerFactory
+import za.co.absa.abris.avro.registry.SchemaSubject
+import za.co.absa.abris.config.AbrisConfig
 import za.co.absa.abris.examples.data.generation.{ComplexRecordsGenerator, TestSchemas}
 
 class CatalystAvroConversionSpec extends FlatSpec with Matchers with BeforeAndAfterEach
@@ -430,9 +431,9 @@ class CatalystAvroConversionSpec extends FlatSpec with Matchers with BeforeAndAf
     val dataFrame: DataFrame = getTestingDataFrame
 
     val schemaString = ComplexRecordsGenerator.usedAvroSchema
-    val schemaManager = SchemaManagerFactory.create(Map(AbrisConfig.SCHEMA_REGISTRY_URL -> dummyUrl))
-    val coordinates = SubjectCoordinate.fromTopicNameStrategy("fooTopic", version = None)
-    val schemaId = schemaManager.register(coordinates.subject, schemaString)
+    val schemaManager = SchemaManagerFactory.create(schemaRegistryConfig)
+    val subject = SchemaSubject.usingTopicNameStrategy("fooTopic")
+    val schemaId = schemaManager.register(subject, schemaString)
 
     val toConfig = AbrisConfig
       .toConfluentAvro
@@ -457,18 +458,6 @@ class CatalystAvroConversionSpec extends FlatSpec with Matchers with BeforeAndAf
 
     shouldEqualByData(dataFrame, result)
   }
-
-  private val schemaRegistryConfigForKey = Map(
-    SchemaManager.PARAM_SCHEMA_REGISTRY_TOPIC -> "test_topic",
-    SchemaManager.PARAM_SCHEMA_REGISTRY_URL -> "dummy",
-    SchemaManager.PARAM_KEY_SCHEMA_NAMING_STRATEGY -> "topic.name",
-    SchemaManager.PARAM_KEY_SCHEMA_NAME_FOR_RECORD_STRATEGY -> "native_complete",
-    SchemaManager.PARAM_KEY_SCHEMA_NAMESPACE_FOR_RECORD_STRATEGY -> "all-types.test"
-  )
-
-  private val latestSchemaRegistryConfigForKey = schemaRegistryConfigForKey ++ Map(
-    SchemaManager.PARAM_KEY_SCHEMA_VERSION -> "latest"
-  )
 
   it should "convert all types of data to confluent avro an back using schema registry for key" in {
 

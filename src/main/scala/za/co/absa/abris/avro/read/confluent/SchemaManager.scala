@@ -22,18 +22,33 @@ import io.confluent.kafka.schemaregistry.client.{SchemaMetadata, SchemaRegistryC
 import org.apache.avro.Schema
 import org.apache.spark.internal.Logging
 import za.co.absa.abris.avro.parsing.utils.AvroSchemaUtils
+import za.co.absa.abris.avro.registry._
 
 import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
 
+/**
+ * This class provides methods to integrate with remote schemas through Schema Registry.
+ *
+ * This can be considered an "enriched" facade to the Schema Registry client.
+ *
+ * This is NOT THREAD SAFE, which means that multiple threads operating on this object
+ * (e.g. calling 'configureSchemaRegistry' with different parameters) would operated
+ * on the same Schema Registry client, thus, leading to inconsistent behavior.
+ */
 class SchemaManager(schemaRegistryClient: SchemaRegistryClient) extends Logging {
+
+  def getSchema(coordinate: SchemaCoordinate): Schema = coordinate match {
+      case IdCoordinate(id) => getSchemaById(id)
+      case SubjectCoordinate(subject, version) => getSchemaBySubjectAndVersion(subject, version)
+    }
 
   def getSchemaById(schemaId: Int): Schema = schemaRegistryClient.getById(schemaId)
 
   /**
    * @param version - Some(versionNumber) or None for latest version
    */
-  def getSchemaBySubjectAndVersion(subject: String, version: Option[Int]): Schema = {
+  def getSchemaBySubjectAndVersion(subject: SchemaSubject, version: SchemaVersion): Schema = {
     val metadata = getSchemaMetadataBySubjectAndVersion(subject, version)
 
     AvroSchemaUtils.parse(metadata.getSchema)
@@ -42,22 +57,23 @@ class SchemaManager(schemaRegistryClient: SchemaRegistryClient) extends Logging 
   /**
    * @param version - Some(versionNumber) or None for latest version
    */
-  def getSchemaMetadataBySubjectAndVersion(subject: String, version: Option[Int]): SchemaMetadata =
-    version
-      .map(schemaRegistryClient.getSchemaMetadata(subject, _))
-      .getOrElse(schemaRegistryClient.getLatestSchemaMetadata(subject))
+  def getSchemaMetadataBySubjectAndVersion(subject: SchemaSubject, version: SchemaVersion): SchemaMetadata =
+    version match {
+      case NumVersion(versionInt) => schemaRegistryClient.getSchemaMetadata(subject.asString, versionInt)
+      case LatestVersion() => schemaRegistryClient.getLatestSchemaMetadata(subject.asString)
+    }
 
-  def register(subject: String, schemaString: String): Int = register(subject, AvroSchemaUtils.parse(schemaString))
+  def register(subject: SchemaSubject, schemaString: String): Int = register(subject, AvroSchemaUtils.parse(schemaString))
 
   /**
    * Register a new schema for a subject if the schema is compatible with the latest available version.
    *
    * @return registered schema id
    */
-  def register(subject: String, schema: Schema): Int = {
+  def register(subject: SchemaSubject, schema: Schema): Int = {
     if (!exists(subject) || isCompatible(schema, subject)) {
       logInfo(s"AvroSchemaUtils.registerIfCompatibleSchema: Registering schema for subject: $subject")
-      schemaRegistryClient.register(subject, schema)
+      schemaRegistryClient.register(subject.asString, schema)
     } else {
       throw new InvalidParameterException(s"Schema could not be registered for subject '${subject}'. " +
         "Make sure that the Schema Registry is available, the parameters are correct and the schemas are compatible")
@@ -67,8 +83,8 @@ class SchemaManager(schemaRegistryClient: SchemaRegistryClient) extends Logging 
   /**
    * Checks if a given schema exists in Schema Registry.
    */
-  def exists(subject: String): Boolean = {
-    Try(schemaRegistryClient.getLatestSchemaMetadata(subject)) match {
+  def exists(subject: SchemaSubject): Boolean = {
+    Try(schemaRegistryClient.getLatestSchemaMetadata(subject.asString)) match {
       case Success(_) => true
       case Failure(e) if e.getMessage.contains("Subject not found") || e.getMessage.contains("No schema registered") =>
         logInfo(s"Subject not registered: '$subject'")
@@ -82,16 +98,16 @@ class SchemaManager(schemaRegistryClient: SchemaRegistryClient) extends Logging 
   /**
    * Checks if a new schema is compatible with the latest schema registered for a given subject.
    */
-  private def isCompatible(newSchema: Schema, subject: String): Boolean = {
-    schemaRegistryClient.testCompatibility(subject, newSchema)
+  private def isCompatible(newSchema: Schema, subject: SchemaSubject): Boolean = {
+    schemaRegistryClient.testCompatibility(subject.asString, newSchema)
   }
 
-  def getAllSchemasWithMetadata(subject: String): List[SchemaMetadata] = {
-    val versions = schemaRegistryClient.getAllVersions(subject).asScala.toList
-    versions.map(schemaRegistryClient.getSchemaMetadata(subject, _))
+  def getAllSchemasWithMetadata(subject: SchemaSubject): List[SchemaMetadata] = {
+    val versions = schemaRegistryClient.getAllVersions(subject.asString).asScala.toList
+    versions.map(schemaRegistryClient.getSchemaMetadata(subject.asString, _))
   }
 
-  def findEquivalentSchema(schema: Schema, subject: String): Option[Int] = {
+  def findEquivalentSchema(schema: Schema, subject: SchemaSubject): Option[Int] = {
     val maybeIdenticalSchemaMetadata =
       getAllSchemasWithMetadata(subject)
         .find{
@@ -101,44 +117,9 @@ class SchemaManager(schemaRegistryClient: SchemaRegistryClient) extends Logging 
     maybeIdenticalSchemaMetadata.map(_.getId)
   }
 
-  def getIfExistsOrElseRegisterSchema(schema: Schema, subject: String): Int = {
+  def getIfExistsOrElseRegisterSchema(schema: Schema, subject: SchemaSubject): Int = {
     val maybeSchemaId = findEquivalentSchema(schema, subject)
     maybeSchemaId.getOrElse(register(subject, schema))
-  }
-}
-
-/**
-  * This object provides methods to integrate with remote schemas through Schema Registry.
-  *
-  * This can be considered an "enriched" facade to the Schema Registry client.
-  *
-  * This is NOT THREAD SAFE, which means that multiple threads operating on this object
-  * (e.g. calling 'configureSchemaRegistry' with different parameters) would operated
-  * on the same Schema Registry client, thus, leading to inconsistent behavior.
-  */
-object SchemaManager extends Logging {
-
-  val PARAM_SCHEMA_REGISTRY_TOPIC = "schema.registry.topic"
-  val PARAM_SCHEMA_REGISTRY_URL = "schema.registry.url"
-  val PARAM_VALUE_SCHEMA_ID = "value.schema.id"
-  val PARAM_VALUE_SCHEMA_VERSION = "value.schema.version"
-  val PARAM_KEY_SCHEMA_ID = "key.schema.id"
-  val PARAM_KEY_SCHEMA_VERSION = "key.schema.version"
-  val PARAM_SCHEMA_ID_LATEST_NAME = "latest"
-
-  val PARAM_KEY_SCHEMA_NAMING_STRATEGY = "key.schema.naming.strategy"
-  val PARAM_VALUE_SCHEMA_NAMING_STRATEGY = "value.schema.naming.strategy"
-
-  val PARAM_KEY_SCHEMA_NAME_FOR_RECORD_STRATEGY = "key.schema.name"
-  val PARAM_KEY_SCHEMA_NAMESPACE_FOR_RECORD_STRATEGY = "key.schema.namespace"
-
-  val PARAM_VALUE_SCHEMA_NAME_FOR_RECORD_STRATEGY = "value.schema.name"
-  val PARAM_VALUE_SCHEMA_NAMESPACE_FOR_RECORD_STRATEGY = "value.schema.namespace"
-
-  object SchemaStorageNamingStrategies extends Enumeration {
-    val TOPIC_NAME = "topic.name"
-    val RECORD_NAME = "record.name"
-    val TOPIC_RECORD_NAME = "topic.record.name"
   }
 }
 
